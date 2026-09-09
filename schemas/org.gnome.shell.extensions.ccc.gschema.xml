@@ -1,12 +1,17 @@
+```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="org.gnome.shell.extensions.ccc" path="/org/gnome/shell/extensions/ccc/">
+
+  <schema
+      id="org.gnome.shell.extensions.ccc"
+      path="/org/gnome/shell/extensions/ccc/">
+
     <key name="toggle-hotkey" type="as">
       <default>['F1']</default>
       <summary>Case conversion hotkey</summary>
       <description>
-        Global keyboard shortcut used to cycle the selected text through the case states.
-        The default shortcut is F1 and can be changed in the extension preferences.
+        Global keyboard shortcut used to cycle selected text through
+        UPPER CASE, lower case, and Title Case.
       </description>
     </key>
 
@@ -14,9 +19,11 @@
       <default>''</default>
       <summary>Applications requiring a selection offset</summary>
       <description>
-        One application ID, package name, or process name per line. These applications
-        receive the two-character trailing-line offset instead of the normal one-character offset.
+        One application identifier, window class, or process name per line.
       </description>
     </key>
+
   </schema>
+
 </schemalist>
+```
