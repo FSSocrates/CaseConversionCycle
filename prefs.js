@@ -1,4 +1,3 @@
-```javascript
 import Adw from 'gi://Adw';
 import Gdk from 'gi://Gdk';
 import Gtk from 'gi://Gtk';
@@ -200,4 +199,3 @@ export default class CaseConversionCyclePreferences
         window.add(page);
     }
 }
-```

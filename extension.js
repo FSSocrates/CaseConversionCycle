@@ -1,4 +1,3 @@
-```javascript
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
@@ -56,12 +55,19 @@ function runCommand(argv) {
 }
 
 async function sendKey(key, modifiers = []) {
-    const parts = [...modifiers, key];
-    await runCommand([
-        'ydotool',
-        'key',
-        parts.join('+'),
-    ]);
+    const events = [];
+
+    // Press modifiers first, then the key
+    for (const mod of modifiers)
+        events.push(`${mod}:1`);
+    events.push(`${key}:1`);
+
+    // Release key first, then modifiers (reverse order)
+    events.push(`${key}:0`);
+    for (const mod of [...modifiers].reverse())
+        events.push(`${mod}:0`);
+
+    await runCommand(['ydotool', 'key', ...events]);
 }
 
 function getClipboard() {
@@ -185,15 +191,17 @@ function getCurrentApplicationIds() {
         if (pid > 0) {
             const file = Gio.File.new_for_path(`/proc/${pid}/exe`);
             const info = file.query_info(
-                'standard::name',
+                'standard::symlink-target',
                 Gio.FileQueryInfoFlags.NONE,
                 null
             );
+            const target = info.get_symlink_target();
 
-            const name = info.get_name();
-
-            if (name)
-                ids.add(name.toLowerCase());
+            if (target) {
+                const name = GLib.path_get_basename(target);
+                if (name)
+                    ids.add(name.toLowerCase());
+            }
         }
     } catch (_) {
     }
@@ -297,4 +305,3 @@ export default class CaseConversionCycle extends Extension {
         }
     }
 }
-```
