@@ -1,0 +1,9 @@
+{
+  "uuid": "ccc@fssocrates.github.io",
+  "name": "Case Conversion Cycle",
+  "description": "Cycle selected clipboard text through Title Case, UPPERCASE, and lowercase with a configurable global shortcut. Reads and replaces clipboard text only when the user invokes the configured shortcut.",
+  "shell-version": ["46"],
+  "settings-schema": "org.gnome.shell.extensions.ccc",
+  "url": "https://github.com/FSSocrates/CaseConversionCycle",
+  "session-modes": ["user"]
+}
