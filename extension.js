@@ -38,7 +38,7 @@ function runCommand(argv) {
                 flags: Gio.SubprocessFlags.NONE,
             });
 
-            process.init();
+            process.init(null);
 
             process.wait_async(null, (proc, result) => {
                 try {
