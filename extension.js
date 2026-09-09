@@ -1,10 +1,11 @@
+```javascript
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
-import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
+import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 const COPY_TIMEOUT_MS = 1000;
@@ -12,86 +13,85 @@ const COPY_POLL_MS = 25;
 const PASTE_DELAY_MS = 100;
 const RESELECT_DELAY_MS = 50;
 
-function sleep(ms) {
-    return new Promise(resolve => GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms, () => {
-        resolve();
-        return GLib.SOURCE_REMOVE;
-    }));
+const EVDEV = {
+    CTRL: 29,
+    C: 46,
+    X: 45,
+    V: 47,
+    LEFT: 105,
+    SHIFT: 42,
+};
+
+function sleep(milliseconds) {
+    return new Promise(resolve => {
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, milliseconds, () => {
+            resolve();
+            return GLib.SOURCE_REMOVE;
+        });
+    });
 }
 
 function runCommand(argv) {
     return new Promise((resolve, reject) => {
-        let proc;
         try {
-            proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
-        } catch (e) {
-            reject(e);
-            return;
-        }
+            const process = new Gio.Subprocess({
+                argv,
+                flags: Gio.SubprocessFlags.NONE,
+            });
 
-        proc.wait_async(null, (_proc, result) => {
-            try {
-                proc.wait_finish(result);
-                resolve(proc.get_successful());
-            } catch (e) {
-                reject(e);
-            }
-        });
+            process.init();
+
+            process.wait_async(null, (proc, result) => {
+                try {
+                    proc.wait_finish(result);
+                    resolve(proc.get_exit_status());
+                } catch (error) {
+                    reject(error);
+                }
+            });
+        } catch (error) {
+            reject(error);
+        }
     });
 }
 
-async function sendKeyChord(key) {
-    // ydotool uses Linux input-event key codes. These are stable evdev codes:
-    // Left Ctrl=29, C=46, V=47.
-    const keyCode = key === 'c' ? 46 : (key === 'x' ? 45 : 47);
-    return runCommand([
-        'ydotool', 'key',
-        `29:1`,
-        `${keyCode}:1`,
-        `${keyCode}:0`,
-        `29:0`,
+async function sendKey(key, modifiers = []) {
+    const parts = [...modifiers, key];
+    await runCommand([
+        'ydotool',
+        'key',
+        parts.join('+'),
     ]);
 }
 
-async function sendLeft() {
-    // KEY_LEFT = evdev 105.
-    return runCommand(['ydotool', 'key', '105:1', '105:0']);
-}
-
-async function sendShiftLeft(count) {
-    if (count <= 0)
-        return true;
-
-    // Left Shift=42, Left Arrow=105.
-    const events = ['42:1'];
-    for (let i = 0; i < count; i++) {
-        events.push('105:1', '105:0');
-    }
-    events.push('42:0');
-
-    return runCommand(['ydotool', 'key', ...events]);
-}
-
-function clipboardText() {
+function getClipboard() {
     return new Promise(resolve => {
-        const clipboard = St.Clipboard.get_default();
-        clipboard.get_text(St.ClipboardType.CLIPBOARD, (_clipboard, text) => {
-            resolve(text ?? '');
-        });
+        St.Clipboard.get_default().get_text(
+            St.ClipboardType.CLIPBOARD,
+            (_clipboard, text) => resolve(text ?? '')
+        );
     });
 }
 
-function setClipboardText(text) {
-    St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text);
+function setClipboard(text) {
+    St.Clipboard.get_default().set_text(
+        St.ClipboardType.CLIPBOARD,
+        text
+    );
 }
 
-async function waitForClipboardChange(sentinel) {
-    const deadline = GLib.get_monotonic_time() + COPY_TIMEOUT_MS * 1000;
+async function waitForClipboardChange(originalText) {
+    const start = GLib.get_monotonic_time();
 
-    while (GLib.get_monotonic_time() < deadline) {
-        const text = await clipboardText();
-        if (text !== sentinel)
+    while (
+        (GLib.get_monotonic_time() - start) / 1000 <
+        COPY_TIMEOUT_MS
+    ) {
+        const text = await getClipboard();
+
+        if (text !== originalText)
             return text;
+
         await sleep(COPY_POLL_MS);
     }
 
@@ -99,9 +99,11 @@ async function waitForClipboardChange(sentinel) {
 }
 
 function titleCase(text) {
-    // Mirrors the intended AHK behavior as closely as practical for Unicode text.
-    return text.replace(/\p{L}[\p{L}\p{N}]*/gu, word =>
-        word.charAt(0).toLocaleUpperCase() + word.slice(1).toLocaleLowerCase()
+    return text.replace(
+        /\p{L}[\p{L}\p{N}]*/gu,
+        word =>
+            word.charAt(0).toLocaleUpperCase() +
+            word.slice(1).toLocaleLowerCase()
     );
 }
 
@@ -109,86 +111,107 @@ function classifyCase(text) {
     const upper = text.toLocaleUpperCase();
     const lower = text.toLocaleLowerCase();
 
-    const isUpper = text === upper && text !== lower;
-    const isLower = text === lower && text !== upper;
+    if (text === upper && text !== lower)
+        return 'upper';
 
-    if (isUpper)
-        return lower;
-    if (isLower)
-        return titleCase(text);
-    return upper;
+    if (text === lower && text !== upper)
+        return 'lower';
+
+    return 'mixed';
 }
 
-function trailingLineBreak(text) {
+function convertCase(text) {
+    switch (classifyCase(text)) {
+    case 'upper':
+        return text.toLocaleLowerCase();
+
+    case 'lower':
+        return titleCase(text);
+
+    default:
+        return text.toLocaleUpperCase();
+    }
+}
+
+function hasTrailingLineBreak(text) {
     return /[\r\n]+$/.test(text);
 }
 
-function getSelectionOffsetApps(text) {
+function getConfiguredOffsetApps(settings) {
     return new Set(
-        text
+        settings
+            .get_string('selection-offset-apps')
             .split(/\r?\n/)
-            .map(line => line.trim().toLocaleLowerCase())
+            .map(line => line.trim().toLowerCase())
             .filter(Boolean)
     );
 }
 
-function currentApplicationIds() {
+function getCurrentApplicationIds() {
     const window = global.display.get_focus_window();
+
     if (!window)
         return [];
 
     const ids = new Set();
 
     try {
-        const appId = window.get_gtk_application_id?.();
-        if (appId)
-            ids.add(appId.toLocaleLowerCase());
+        const id = window.get_gtk_application_id();
+
+        if (id)
+            ids.add(id.toLowerCase());
     } catch (_) {
-        // Some window types do not expose an application ID.
     }
 
     try {
-        const wmClass = window.get_wm_class?.();
+        const wmClass = window.get_wm_class();
+
         if (wmClass)
-            ids.add(wmClass.toLocaleLowerCase());
+            ids.add(wmClass.toLowerCase());
     } catch (_) {
-        // Ignore unsupported window metadata.
     }
 
     try {
-        const wmClassInstance = window.get_wm_class_instance?.();
-        if (wmClassInstance)
-            ids.add(wmClassInstance.toLocaleLowerCase());
+        const instance = window.get_wm_class_instance();
+
+        if (instance)
+            ids.add(instance.toLowerCase());
     } catch (_) {
-        // Ignore unsupported window metadata.
     }
 
     try {
-        const pid = window.get_pid?.();
+        const pid = window.get_pid();
+
         if (pid > 0) {
-            const procPath = `/proc/${pid}/exe`;
-            const [ok, bytes] = GLib.file_get_contents(procPath);
-            if (ok) {
-                const target = new TextDecoder().decode(bytes);
-                const slash = target.lastIndexOf('/');
-                const basename = slash >= 0 ? target.slice(slash + 1) : target;
-                if (basename)
-                    ids.add(basename.toLocaleLowerCase());
-            }
+            const file = Gio.File.new_for_path(`/proc/${pid}/exe`);
+            const info = file.query_info(
+                'standard::name',
+                Gio.FileQueryInfoFlags.NONE,
+                null
+            );
+
+            const name = info.get_name();
+
+            if (name)
+                ids.add(name.toLowerCase());
         }
     } catch (_) {
-        // /proc may be unavailable or inaccessible.
     }
 
     return [...ids];
 }
 
-function needsSelectionOffset(offsetApps) {
-    const currentIds = currentApplicationIds();
-    return currentIds.some(id => offsetApps.has(id));
+function needsSelectionOffset(settings) {
+    const configured = getConfiguredOffsetApps(settings);
+
+    if (configured.size === 0)
+        return false;
+
+    return getCurrentApplicationIds()
+        .some(id => configured.has(id));
 }
 
-export default class CaseConversionCycleExtension extends Extension {
+export default class CaseConversionCycle extends Extension {
     enable() {
         this._settings = this.getSettings();
         this._busy = false;
@@ -204,6 +227,7 @@ export default class CaseConversionCycleExtension extends Extension {
 
     disable() {
         Main.wm.removeKeybinding('toggle-hotkey');
+
         this._settings = null;
         this._busy = false;
     }
@@ -213,51 +237,64 @@ export default class CaseConversionCycleExtension extends Extension {
             return;
 
         this._busy = true;
-        const savedClipboard = await clipboardText();
-        const sentinel = `__CCC_SENTINEL__${GLib.get_monotonic_time()}`;
+
+        const originalClipboard = await getClipboard();
 
         try {
-            // Match the AutoHotkey behavior: clear the clipboard, cut the selection,
-            // transform it, then paste the replacement back into the same location.
-            setClipboardText(sentinel);
+            setClipboard('');
 
-            if (!(await sendKeyChord('x')))
+            // Cut the current selection, matching the requested behavior.
+            await sendKey(EVDEV.X, [EVDEV.CTRL]);
+
+            const selectedText =
+                await waitForClipboardChange('');
+
+            if (selectedText === null || selectedText.length === 0)
                 return;
 
-            const text = await waitForClipboardChange(sentinel);
-            if (text === null || text.length === 0)
-                return;
+            const transformedText =
+                convertCase(selectedText);
 
-            const transformed = classifyCase(text);
-            const hasBreak = trailingLineBreak(text);
-            const offsetApps = getSelectionOffsetApps(
-                this._settings.get_string('selection-offset-apps')
-            );
+            setClipboard(transformedText);
 
-            setClipboardText(transformed);
             await sleep(PASTE_DELAY_MS);
 
-            if (!(await sendKeyChord('v')))
-                return;
+            await sendKey(EVDEV.V, [EVDEV.CTRL]);
 
-            await sleep(RESELECT_DELAY_MS);
+            const trailingLineBreak =
+                hasTrailingLineBreak(selectedText);
 
-            if (hasBreak)
-                await sendLeft();
+            if (trailingLineBreak)
+                await sendKey(EVDEV.LEFT);
 
-            // Match the AHK rule: ordinary apps compensate one character for a
-            // trailing line break; configured offset apps compensate two.
-            const offset = hasBreak ? (needsSelectionOffset(offsetApps) ? 2 : 1) : 0;
-            const length = Math.max(0, text.length - offset);
+            let selectionLength =
+                transformedText.length;
 
-            await sendShiftLeft(length);
-        } catch (e) {
-            console.error(`${this.metadata.name}: conversion failed`, e);
+            if (trailingLineBreak) {
+                selectionLength -=
+                    needsSelectionOffset(this._settings)
+                        ? 2
+                        : 1;
+            }
+
+            if (selectionLength > 0) {
+                await sleep(RESELECT_DELAY_MS);
+
+                for (let i = 0; i < selectionLength; i++) {
+                    await sendKey(
+                        EVDEV.LEFT,
+                        [EVDEV.SHIFT]
+                    );
+                }
+            }
+        } catch (error) {
+            console.error(
+                `[Case Conversion Cycle] ${error.message}`
+            );
         } finally {
-            // This extension can only preserve text clipboard contents, unlike
-            // AHK ClipboardAll(), which can preserve arbitrary clipboard formats.
-            setClipboardText(savedClipboard);
+            setClipboard(originalClipboard);
             this._busy = false;
         }
     }
 }
+```
