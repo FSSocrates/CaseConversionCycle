@@ -1,0 +1,7 @@
+{
+  "uuid": "ccc@fssocrates.github.io",
+  "name": "Case Conversion Cycle",
+  "description": "Toggles text case between lowercase, title case, and uppercase for highlighted text.",
+  "shell-version": [ "45", "46", "47" ],
+  "url": "https://github.com/FSSocrates/CaseConversionCycle"
+}
