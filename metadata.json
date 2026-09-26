@@ -1,8 +1,0 @@
-{
-  "uuid": "ccc@fssocrates.github.io",
-  "name": "Case Conversion Cycle",
-  "description": "Cycle selected text through UPPER CASE, lower case, and Title Case with a configurable global shortcut.",
-  "shell-version": ["46"],
-  "settings-schema": "org.gnome.shell.extensions.ccc",
-  "url": "https://github.com/FSSocrates/CaseConversionCycle"
-}
